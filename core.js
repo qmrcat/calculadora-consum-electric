@@ -62,6 +62,28 @@
   }
   function means(rows) { return Object.fromEntries(['punta','pla','vall'].map(p=>{const r=rows.filter(v=>v.period===p);return [p,r.length?r.reduce((s,v)=>s+v.price,0)/r.length:null];})); }
   function current(rows, now=Date.now()) {return rows.find(r=>now>=r.start && now<r.end)??null;}
+  function nextDays(day) { return Array.from({length:5},(_,i)=>shiftDay(day,i+1)); }
+  function futureRedata(json, days) {
+    if(!Array.isArray(json.included)) throw new Error('Resposta de preus no reconeguda.');
+    const series=json.included.find(s=>String(s.id)==='1001' || s.type==='PVPC');
+    const values=series?.attributes?.values ?? [];
+    if(!Array.isArray(values)) throw new Error('Sèrie PVPC no reconeguda.');
+    return days.map(day=>{
+      const hasData=values.some(v=>Number.isFinite(Date.parse(v.datetime)) && parts(new Date(v.datetime)).day===day);
+      if(!hasData) return {day,state:'pending'};
+      try { return {day,state:'published',rows:parseRedata(json,day)}; }
+      catch { return {day,state:'invalid'}; }
+    });
+  }
+  function billModel(total, taxes, fixedDaily=0) {
+    if(![total,taxes,fixedDaily].every(Number.isFinite) || total<=0 || taxes<0 || taxes>=total || fixedDaily<0) return null;
+    return {factor:total/(total-taxes),taxRate:taxes/(total-taxes),fixedDaily};
+  }
+  function finalCost(watts, price, hours, model) {
+    if(!model || ![watts,price,hours,model.factor,model.fixedDaily].every(Number.isFinite) || watts<0 || hours<0) return null;
+    const amount=cost(watts,price,hours)*model.factor+model.fixedDaily*hours/24;
+    return Number.isFinite(amount)?amount:null;
+  }
   function cost(watts, price, hours=1) { return watts/1000*hours*price; }
-  globalThis.Watt = Object.freeze({TZ,parts,allValley,period,shiftDay,referenceDay,midnight,validate,parseRedata,parseEsios,means,current,cost});
+  globalThis.Watt = Object.freeze({TZ,parts,allValley,period,shiftDay,referenceDay,midnight,validate,parseRedata,parseEsios,means,current,cost,nextDays,futureRedata,billModel,finalCost});
 })();
